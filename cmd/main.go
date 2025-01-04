@@ -90,9 +90,9 @@ func processPublicKey(privKeyInt *big.Int, resultChan chan string, mutex *sync.M
 	pubKeyHashStr := hex.EncodeToString(pubKeyHash)
 
 	// Comparar com o valor desejado
-	if pubKeyHashStr == "20d45a6a762535700ce9e0b216e31994335db8a5" {
+	if pubKeyHashStr == "739437bb3dd6d1983e66629c5f08c70e52769371" {
 		// Imprime no console
-		fmt.Println("Hash Público (RIPEMD-160):", pubKeyHashStr)
+		// fmt.Println("Hash Público (RIPEMD-160):", pubKeyHashStr)
 
 		// Abre o arquivo ou cria um novo arquivo txt para escrita
 		mutex.Lock() // Protege o acesso ao arquivo
@@ -104,9 +104,10 @@ func processPublicKey(privKeyInt *big.Int, resultChan chan string, mutex *sync.M
 			return
 		}
 		defer file.Close() // Garante que o arquivo será fechado após a operação
+		bigIntStr := privKeyInt.String()
 
 		// Escreve o hash público no arquivo
-		_, err = file.WriteString("Hash Público (RIPEMD-160): " + pubKeyHashStr + "\n")
+		_, err = file.WriteString("Hash Público (RIPEMD-160): " + pubKeyHashStr + "   chave:  " + bigIntStr + "\n")
 		if err != nil {
 			fmt.Println("Erro ao escrever no arquivo:", err)
 			return
@@ -123,7 +124,7 @@ func main() {
 	// Definir o número de núcleos a serem usados
 	runtime.GOMAXPROCS(10) // Ajuste o número de núcleos para o seu hardware
 
-	privKeyDecimal := "46346217550346335725" // Exemplo de chave privada decimal
+	privKeyDecimal := "147573952589614412928" // Exemplo de chave privada decimal
 
 	// Converte para BigInt (chave privada em decimal)
 	privKeyInt := new(big.Int)
@@ -143,7 +144,7 @@ func main() {
 	// Medir o tempo de execução do loop
 	startTime := time.Now() // Começa a medir o tempo
 
-	for i := 0; i < 1000000; i++ {
+	for i := 1000 * 1000 * 1000; i >= 0; i-- {
 		wg.Add(1)
 
 		// Cria uma cópia de privKeyInt para passar para a goroutine
@@ -161,8 +162,23 @@ func main() {
 			<-semaphore
 		}()
 
+		if i%1000000 == 0 {
+			bigIntStr := privKeyInt.String()
+			// Abre o arquivo ou cria um novo arquivo para gravação
+			file, err := os.OpenFile("progress.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				log.Fatal(err)
+			}
+			defer file.Close()
+			// Escreve a posição atual no arquivo
+			_, err = file.WriteString(fmt.Sprintf("Progresso: Iteração->" + bigIntStr + "\n"))
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+
 		// Aumenta o valor da chave privada
-		privKeyInt.Add(privKeyInt, big.NewInt(1))
+		privKeyInt.Sub(privKeyInt, big.NewInt(1))
 	}
 
 	// Aguarda até que todas as goroutines terminem

@@ -1,0 +1,24 @@
+Progresso: Iteração 1000000000
+Progresso: Iteração 999000000
+Progresso: Iteração 998000000
+Progresso: Iteração 997000000
+Progresso: Iteração 996000000
+Progresso: Iteração 995000000
+Progresso: Iteração 994000000
+Progresso: Iteração 993000000
+Progresso: Iteração 992000000
+Progresso: Iteração 991000000
+Progresso: Iteração 990000000
+Progresso: Iteração 989000000
+Progresso: Iteração 988000000
+Progresso: Iteração->147573952589614412928Progresso: Iteração->147573952589613412928Progresso: Iteração->147573952589612412928Progresso: Iteração->147573952589611412928Progresso: Iteração->147573952589610412928Progresso: Iteração->147573952589609412928Progresso: Iteração->147573952589608412928Progresso: Iteração->147573952589614412928
+Progresso: Iteração->147573952589613412928
+Progresso: Iteração->147573952589612412928
+Progresso: Iteração->147573952589611412928
+Progresso: Iteração->147573952589610412928
+Progresso: Iteração->147573952589609412928
+Progresso: Iteração->147573952589608412928
+Progresso: Iteração->147573952589607412928
+Progresso: Iteração->147573952589606412928
+Progresso: Iteração->147573952589605412928
+Progresso: Iteração->147573952589604412928
