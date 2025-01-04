@@ -1,119 +1,177 @@
 package main
 
 import (
-	"btcgo/cmd/utils"
-	"encoding/json"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"math/big"
 	"os"
-	"runtime"
 	"sync"
 	"time"
+
+	"runtime"
+
+	"github.com/btcsuite/btcutil/base58"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"golang.org/x/crypto/ripemd160"
 )
 
-type Wallets struct {
-	Wallets          []string `json:"Wallets"`
-	FileName         string
-	SearchingWallets string
-	DataWallet       map[string]bool
-	DataWalletID     map[int]string
-}
-
-func SalvarBufferEmArquivo(buffer []string, filename string) {
-	file, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+// Gera o WIF (Wallet Import Format) a partir da chave privada
+func GenerateWif(privKeyInt *big.Int) string {
+	privKeyHex := fmt.Sprintf("%064x", privKeyInt)
+	privKeyBytes, err := hex.DecodeString(privKeyHex)
 	if err != nil {
-		log.Fatalf("Erro ao abrir o arquivo: %v", err)
+		log.Fatal(err)
 	}
-	defer file.Close()
 
-	for _, line := range buffer {
-		_, err := file.WriteString(line + "\n")
-		if err != nil {
-			log.Fatalf("Erro ao escrever no arquivo: %v", err)
-		}
-	}
+	extendedKey := append([]byte{0x80}, privKeyBytes...)
+	extendedKey = append(extendedKey, 0x01)
+
+	firstSHA := sha256.Sum256(extendedKey)
+	secondSHA := sha256.Sum256(firstSHA[:])
+	checksum := secondSHA[:4]
+
+	finalKey := append(extendedKey, checksum...)
+	wif := base58.Encode(finalKey)
+	return wif
 }
 
-func processarIntervalo(inicio *big.Int, fim *big.Int, Wallets *Wallets, wg *sync.WaitGroup, workerID int) {
-	defer wg.Done()
-	const checkpointInterval = 1000000 * 1000 // 1 bilhao de registros
+func GeneratePublicKey(privKeyInt *big.Int) []byte {
+	privKeyBytes := privKeyInt.Bytes()
 
-	privKeyHex := ""
-	privKeyInt := new(big.Int)
+	// Cria uma nova chave privada usando o pacote secp256k1
+	privKey := secp256k1.PrivKeyFromBytes(privKeyBytes)
 
-	for i := new(big.Int).Set(inicio); i.Cmp(fim) <= 0; i.Add(i, big.NewInt(1)) {
-		privKeyHex = fmt.Sprintf("%064x", i) // Preenche com zeros à esquerda para garantir 64 caracteres
-		privKeyInt.SetString(privKeyHex, 16)
-		address := utils.CreatePublicHash160(privKeyInt)
+	// Obtém a chave pública correspondente no formato comprimido
+	compressedPubKey := privKey.PubKey().SerializeCompressed()
+	return compressedPubKey
+}
 
-		if _, exists := Wallets.DataWallet[string(address)]; exists {
-			wallet := utils.Hash160ToAddress(address)
-			wif := utils.GenerateWif(privKeyInt)
+// Cria o hash160 da chave pública comprimida
+func CreatePublicHash160(pubKey []byte) []byte {
+	pubKeyHash := hash160(pubKey)
+	return pubKeyHash
+}
 
-			line := fmt.Sprintf("%s -> %s -> %s -> %s", privKeyHex, wallet, wif, time.Now().Format("2006-01-02 15:04:05"))
-			SalvarBufferEmArquivo([]string{line}, "wallets.txt")
+// Calcula o checksum necessário para o endereço Bitcoin
+func checksum(payload []byte) []byte {
+	hash1 := sha256.Sum256(payload)
+	hash2 := sha256.Sum256(hash1[:])
+	return hash2[:4]
+}
 
+// Gera o endereço Bitcoin a partir do hash160
+func Hash160ToAddress(hash160 []byte) string {
+	versionedPayload := append([]byte{0x00}, hash160...)
+	checksum := checksum(versionedPayload)
+	fullPayload := append(versionedPayload, checksum...)
+	return base58.Encode(fullPayload)
+}
+
+// Realiza o hash160 (SHA256 seguido de RIPEMD160)
+func hash160(b []byte) []byte {
+	h := sha256.New()
+	h.Write(b)
+	sha256Hash := h.Sum(nil)
+
+	r := ripemd160.New()
+	r.Write(sha256Hash)
+	return r.Sum(nil)
+}
+
+// Processar a chave pública
+func processPublicKey(privKeyInt *big.Int, resultChan chan string, mutex *sync.Mutex) {
+	// Gerar a chave pública
+	pubKey := GeneratePublicKey(privKeyInt)
+
+	// Criar o hash da chave pública
+	pubKeyHash := CreatePublicHash160(pubKey)
+	pubKeyHashStr := hex.EncodeToString(pubKeyHash)
+
+	// Comparar com o valor desejado
+	if pubKeyHashStr == "20d45a6a762535700ce9e0b216e31994335db8a5" {
+		// Imprime no console
+		fmt.Println("Hash Público (RIPEMD-160):", pubKeyHashStr)
+
+		// Abre o arquivo ou cria um novo arquivo txt para escrita
+		mutex.Lock() // Protege o acesso ao arquivo
+		defer mutex.Unlock()
+
+		file, err := os.OpenFile("hash_publico.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			fmt.Println("Erro ao criar o arquivo:", err)
+			return
+		}
+		defer file.Close() // Garante que o arquivo será fechado após a operação
+
+		// Escreve o hash público no arquivo
+		_, err = file.WriteString("Hash Público (RIPEMD-160): " + pubKeyHashStr + "\n")
+		if err != nil {
+			fmt.Println("Erro ao escrever no arquivo:", err)
+			return
 		}
 
-		// Verifica se atingiu o checkpoint
-		if workerID == 1 && i.Int64()%checkpointInterval == 0 {
-			checkpoint := fmt.Sprintf("Checkpoint: Worker %d processou até %s em %s", workerID, i.String(), time.Now().Format("2006-01-02 15:04:05"))
-			SalvarBufferEmArquivo([]string{checkpoint}, "checkpoint-1.txt")
-		}
+		fmt.Println("Hash salvo em hash_publico.txt")
 	}
+
+	// Envia o hash para o canal
+	resultChan <- pubKeyHashStr
 }
 
 func main() {
-	// Configura o Go para usar todos os núcleos disponíveis
-	runtime.GOMAXPROCS(runtime.NumCPU())
+	// Definir o número de núcleos a serem usados
+	runtime.GOMAXPROCS(10) // Ajuste o número de núcleos para o seu hardware
 
-	// Carregar os dados de wallets
-	bytes, err := os.ReadFile("data/Wallets.json")
-	if err != nil {
-		log.Fatal(err)
-	}
+	privKeyDecimal := "46346217550346335725" // Exemplo de chave privada decimal
 
-	var Wallets Wallets
-	if err := json.Unmarshal(bytes, &Wallets); err != nil {
-		log.Fatal(err)
-	}
+	// Converte para BigInt (chave privada em decimal)
+	privKeyInt := new(big.Int)
+	privKeyInt.SetString(privKeyDecimal, 10) // Base 10 para BigInt
 
-	// Inicializando os mapas de DataWallet e DataWalletID corretamente
-	Wallets.DataWallet = make(map[string]bool)
-	Wallets.DataWalletID = make(map[int]string)
-
-	for i, address := range Wallets.Wallets {
-		Wallets.DataWallet[string(utils.Decode(address)[1:21])] = true
-		Wallets.DataWalletID[i] = address
-	}
-
-	// Valores grandes (total e numWorkers)
-	total := new(big.Int)
-	total.SetString("146346217550346335726", 10) // Total
-	start := new(big.Int)
-	start.SetString("46346217550346335726", 10) // Início
-
-	numWorkers := runtime.NumCPU() // Usando o número de CPUs disponíveis
-	fmt.Print(numWorkers)
-	interval := new(big.Int).Div(new(big.Int).Sub(total, start), big.NewInt(int64(numWorkers)))
-
+	// Canal para coletar os resultados
+	resultChan := make(chan string)
 	var wg sync.WaitGroup
 
-	for i := 0; i < numWorkers; i++ {
-		inicio := new(big.Int).Add(start, new(big.Int).Mul(big.NewInt(int64(i)), interval))
-		fim := new(big.Int).Add(inicio, interval)
+	// Mutex para proteger a escrita no arquivo
+	var mutex sync.Mutex
 
-		if i == numWorkers-1 { // Ajusta o intervalo do último worker
-			fim = total
-		}
+	// Limitar o número de goroutines simultâneas
+	numWorkers := 10
+	semaphore := make(chan struct{}, numWorkers)
 
+	// Medir o tempo de execução do loop
+	startTime := time.Now() // Começa a medir o tempo
+
+	for i := 0; i < 1000000; i++ {
 		wg.Add(1)
-		go processarIntervalo(inicio, fim, &Wallets, &wg, i+1)
+
+		// Cria uma cópia de privKeyInt para passar para a goroutine
+		privKeyCopy := new(big.Int).Set(privKeyInt)
+
+		go func() {
+			defer wg.Done()
+
+			// Limita a quantidade de goroutines simultâneas
+			semaphore <- struct{}{} // Adquire um slot no pool
+
+			processPublicKey(privKeyCopy, resultChan, &mutex)
+
+			// Libera o slot no pool
+			<-semaphore
+		}()
+
+		// Aumenta o valor da chave privada
+		privKeyInt.Add(privKeyInt, big.NewInt(1))
 	}
 
-	wg.Wait()
+	// Aguarda até que todas as goroutines terminem
+	go func() {
+		wg.Wait()
+		close(resultChan) // Fecha o canal depois que todas as goroutines terminarem
+	}()
 
-	fmt.Println("Processamento concluído! Todos os workers finalizaram suas tarefas.")
-
+	// Medir o tempo de execução total após o loop
+	elapsedTime := time.Since(startTime)
+	fmt.Printf("Tempo total para processar as goroutines: %s\n", elapsedTime)
 }
